@@ -1,0 +1,74 @@
+[workspace]
+members = [
+    "crates/common",
+    "crates/pageserver",
+    "crates/safekeeper",
+    "crates/control-plane",
+    "crates/compute-shim",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Abhishek Chavan"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["codec", "io"] }
+
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+
+# gRPC
+tonic = "0.11"
+prost = "0.12"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+bytes = { version = "1", features = ["serde"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+
+# IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+prometheus = { version = "0.13", features = ["process"] }
+
+# HTTP client
+reqwest = { version = "0.11", features = ["json"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Config
+config = "0.14"
+toml = "0.8"
+
+# Async traits
+async-trait = "0.1"
+
+# Utilities
+futures = "0.3"
+pin-project = "1"
+dashmap = "5"
+parking_lot = "0.12"
+rand = "0.8"
+tempfile = "3"
+
+# Testing
+[workspace.dependencies.tokio-test]
+version = "0.4"

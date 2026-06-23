@@ -1,0 +1,4 @@
+comment = 'Lattice storage manager hook for Postgres'
+default_version = '1.0'
+module_pathname = '$libdir/lattice_smgr'
+relocatable = false

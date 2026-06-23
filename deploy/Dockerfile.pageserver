@@ -1,0 +1,31 @@
+FROM rust:1.87-slim-bookworm AS builder
+WORKDIR /build
+
+# Cache dependencies
+COPY Cargo.toml Cargo.lock ./
+COPY crates/common/Cargo.toml crates/common/
+COPY crates/pageserver/Cargo.toml crates/pageserver/
+COPY crates/safekeeper/Cargo.toml crates/safekeeper/
+COPY crates/control-plane/Cargo.toml crates/control-plane/
+COPY crates/compute-shim/Cargo.toml crates/compute-shim/
+
+# Stub source files so cargo can resolve dependencies
+RUN mkdir -p crates/common/src && echo "pub fn stub(){}" > crates/common/src/lib.rs && \
+    mkdir -p crates/pageserver/src && echo "fn main(){}" > crates/pageserver/src/main.rs && \
+    mkdir -p crates/safekeeper/src && echo "fn main(){}" > crates/safekeeper/src/main.rs && \
+    mkdir -p crates/control-plane/src && echo "fn main(){}" > crates/control-plane/src/main.rs && \
+    mkdir -p crates/compute-shim/src && echo "fn main(){}" > crates/compute-shim/src/main.rs
+
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN cargo build --release --bin pageserver 2>/dev/null || true
+
+# Real build
+COPY crates/ crates/
+RUN touch crates/pageserver/src/main.rs && \
+    cargo build --release --bin pageserver
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates libssl3 curl && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/pageserver /usr/local/bin/pageserver
+EXPOSE 5000
+ENTRYPOINT ["/usr/local/bin/pageserver"]

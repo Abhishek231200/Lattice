@@ -1,0 +1,27 @@
+# Postgres 16 with lattice_smgr C extension.
+FROM postgres:16-bookworm AS pg-base
+
+# Install build dependencies for the C extension
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    postgresql-server-dev-16 \
+    libcurl4-openssl-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build lattice_smgr
+COPY lattice_smgr/ /tmp/lattice_smgr/
+WORKDIR /tmp/lattice_smgr
+RUN make && make install
+
+# Install postgres_exporter for Prometheus metrics
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+RUN curl -sL https://github.com/prometheus-community/postgres_exporter/releases/download/v0.15.0/postgres_exporter-0.15.0.linux-amd64.tar.gz \
+    | tar xz -C /usr/local/bin --strip-components=1
+
+EXPOSE 5432 9187
+
+# Custom entrypoint that starts both postgres and postgres_exporter
+COPY deploy/entrypoint-compute.sh /entrypoint-compute.sh
+RUN chmod +x /entrypoint-compute.sh
+ENTRYPOINT ["/entrypoint-compute.sh"]

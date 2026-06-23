@@ -1,0 +1,12 @@
+FROM rust:1.87-slim-bookworm AS builder
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN cargo build --release --bin safekeeper
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /build/target/release/safekeeper /usr/local/bin/safekeeper
+EXPOSE 5001
+ENTRYPOINT ["/usr/local/bin/safekeeper"]

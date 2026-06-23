@@ -1,0 +1,96 @@
+{
+  "title": "Lattice Autoscaler",
+  "uid": "lattice-autoscaler",
+  "version": 1,
+  "refresh": "5s",
+  "panels": [
+    {
+      "id": 1,
+      "title": "Query p99 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(pg_query_duration_seconds_bucket[1m])) * 1000",
+          "legendFormat": "p99 latency"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 40, "color": "orange" },
+              { "value": 50, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Compute Units",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "lattice_endpoint_compute_units",
+          "legendFormat": "{{endpoint_id}} compute units"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "CPU Utilization",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "avg(rate(container_cpu_usage_seconds_total{name=~\"lattice-compute-.*\"}[1m])) * 100",
+          "legendFormat": "CPU %"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Active Connections",
+      "type": "timeseries",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "targets": [
+        {
+          "expr": "pg_stat_activity_count{state=\"active\"}",
+          "legendFormat": "active connections"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Scaling Decisions",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "changes(lattice_scaling_decisions_total[5m])",
+          "legendFormat": "{{action}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "get_page_at_lsn Latency p50/p99",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 24, "w": 24, "h": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(lattice_get_page_latency_seconds_bucket[1m])) * 1000",
+          "legendFormat": "p50 ms"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(lattice_get_page_latency_seconds_bucket[1m])) * 1000",
+          "legendFormat": "p99 ms"
+        }
+      ]
+    }
+  ]
+}

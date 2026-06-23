@@ -1,0 +1,212 @@
+version: "3.9"
+
+# Lattice full-stack docker-compose.
+#
+# Services:
+#   minio          — S3-compatible object storage (local dev)
+#   postgres-meta  — control-plane metadata DB
+#   pageserver     — Lattice pageserver
+#   safekeeper     — WAL durable buffer
+#   control-plane  — REST API + autoscaler
+#   compute-shim   — storage manager proxy
+#   compute-pg     — example Postgres compute node
+#   prometheus     — metrics scraping
+#   grafana        — autoscaler dashboard
+
+networks:
+  lattice:
+    driver: bridge
+
+volumes:
+  minio-data:
+  pg-meta-data:
+  pageserver-data:
+  wal-data:
+  prometheus-data:
+  grafana-data:
+
+services:
+  # ---------------------------------------------------------------------------
+  # Object storage (MinIO — S3-compatible)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: lattice
+      MINIO_ROOT_PASSWORD: lattice123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    networks: [lattice]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Control-plane metadata DB
+  # ---------------------------------------------------------------------------
+  postgres-meta:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: lattice
+      POSTGRES_PASSWORD: lattice
+      POSTGRES_DB: lattice
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-meta-data:/var/lib/postgresql/data
+    networks: [lattice]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lattice"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Pageserver
+  # ---------------------------------------------------------------------------
+  pageserver:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.pageserver
+    environment:
+      RUST_LOG: info
+      STORAGE_TYPE: s3
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: lattice-layers
+      S3_ACCESS_KEY: lattice
+      S3_SECRET_KEY: lattice123
+      S3_REGION: us-east-1
+    ports:
+      - "5000:5000"
+    volumes:
+      - pageserver-data:/tmp/lattice/data
+    networks: [lattice]
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Safekeeper
+  # ---------------------------------------------------------------------------
+  safekeeper:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.safekeeper
+    environment:
+      RUST_LOG: info
+      PAGESERVER_URL: http://pageserver:5000
+    ports:
+      - "5001:5001"
+    volumes:
+      - wal-data:/tmp/lattice/wal
+    networks: [lattice]
+    depends_on:
+      pageserver:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Control plane
+  # ---------------------------------------------------------------------------
+  control-plane:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.control-plane
+    environment:
+      RUST_LOG: info
+      DATABASE_URL: postgres://lattice:lattice@postgres-meta:5432/lattice
+      PAGESERVER_URL: http://pageserver:5000
+      SAFEKEEPER_URL: http://safekeeper:5001
+      PROMETHEUS_URL: http://prometheus:9090
+    ports:
+      - "5002:5002"
+    networks: [lattice]
+    depends_on:
+      postgres-meta:
+        condition: service_healthy
+      pageserver:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Compute shim
+  # ---------------------------------------------------------------------------
+  compute-shim:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.compute-shim
+    environment:
+      RUST_LOG: info
+      PAGESERVER_URL: http://pageserver:5000
+    ports:
+      - "5003:5003"
+    networks: [lattice]
+    depends_on:
+      pageserver:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Compute node (Postgres 16 with lattice_smgr)
+  # ---------------------------------------------------------------------------
+  compute-pg:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.compute-pg
+    environment:
+      POSTGRES_USER: lattice
+      POSTGRES_PASSWORD: lattice
+      POSTGRES_DB: bench
+      PAGESERVER_URL: http://pageserver:5000
+    ports:
+      - "5433:5432"
+    networks: [lattice]
+    depends_on:
+      compute-shim:
+        condition: service_started
+    command: >
+      postgres
+        -c shared_preload_libraries=lattice_smgr
+        -c lattice_smgr.shim_url=http://compute-shim:5003
+        -c wal_level=replica
+        -c max_wal_senders=5
+        -c wal_keep_size=1GB
+
+  # ---------------------------------------------------------------------------
+  # Prometheus
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks: [lattice]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+
+  # ---------------------------------------------------------------------------
+  # Grafana
+  # ---------------------------------------------------------------------------
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: lattice
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks: [lattice]
+    depends_on: [prometheus]
