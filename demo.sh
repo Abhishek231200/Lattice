@@ -97,9 +97,9 @@ HEALTH=$(curl -sf "$PS/health")
 ok "health: $HEALTH"
 
 hdr "Demo 2: Metrics endpoint"
-METRICS=$(curl -sf "$PS/metrics" | grep "lattice_" | head -3)
-ok "metrics available:"
-echo "$METRICS" | sed 's/^/    /'
+METRICS=$(curl -sf "$PS/metrics" | grep -E "^(lattice_|# HELP lattice_)" | head -6 || true)
+ok "metrics endpoint reachable (counters start at 0 until pages are served):"
+echo "$METRICS" | sed 's/^/    /' || true
 
 hdr "Demo 3: Create root timeline"
 ROOT_TL=$(create_timeline "main")
@@ -132,7 +132,7 @@ echo "  → All branches created in milliseconds regardless of conceptual data s
 
 hdr "Demo 6: Prometheus metrics"
 echo "  Scraped metrics from pageserver/metrics:"
-curl -sf "$PS/metrics" | grep -E "^lattice_" | head -10 | sed 's/^/    /'
+curl -sf "$PS/metrics" | grep -E "^(lattice_|# HELP lattice_)" | head -10 | sed 's/^/    /' || true
 
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
