@@ -33,23 +33,33 @@ wait_for_pageserver() {
 }
 
 # ─── Shared IDs ────────────────────────────────────────────────────────────
-TENANT="t-$(uuidgen | tr '[:upper:]' '[:lower:]' 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
+TENANT="$(uuidgen | tr '[:upper:]' '[:lower:]' 2>/dev/null || cat /proc/sys/kernel/random/uuid)"
 
 # ─── Helpers ───────────────────────────────────────────────────────────────
 
 create_timeline() {
     local name="$1"
-    curl -sf -X POST "$PS/timelines" \
+    local resp
+    resp=$(curl -s -X POST "$PS/timelines" \
         -H "Content-Type: application/json" \
-        -d "{\"tenant_id\":\"$TENANT\",\"name\":\"$name\"}" \
-        | python3 -c "import sys,json; print(json.load(sys.stdin)['timeline_id'])"
+        -d "{\"tenant_id\":\"$TENANT\",\"name\":\"$name\"}")
+    echo "$resp" | python3 -c "
+import sys, json
+try:
+    print(json.load(sys.stdin)['timeline_id'])
+except Exception as e:
+    print(f'ERROR: {e}  raw={sys.stdin.read()!r}', file=sys.stderr)
+    sys.exit(1)
+" || { echo "Server response: $resp" >&2; exit 1; }
 }
 
 create_branch() {
     local parent="$1" at_lsn="$2" name="$3"
-    curl -sf -X POST "$PS/timelines/branch" \
+    local resp
+    resp=$(curl -s -X POST "$PS/timelines/branch" \
         -H "Content-Type: application/json" \
-        -d "{\"tenant_id\":\"$TENANT\",\"parent_timeline_id\":\"$parent\",\"at_lsn\":$at_lsn,\"name\":\"$name\"}"
+        -d "{\"tenant_id\":\"$TENANT\",\"parent_timeline_id\":\"$parent\",\"at_lsn\":$at_lsn,\"name\":\"$name\"}")
+    echo "$resp"
 }
 
 put_page() {
