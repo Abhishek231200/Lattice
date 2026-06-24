@@ -35,7 +35,7 @@ pub struct CompactionConfig {
 impl Default for PageserverConfig {
     fn default() -> Self {
         Self {
-            listen_addr: "0.0.0.0:5000".to_string(),
+            listen_addr: "127.0.0.1:6400".to_string(),
             storage: StorageConfig::LocalFs {
                 path: PathBuf::from("/tmp/lattice/data"),
             },

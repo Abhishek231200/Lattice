@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-PS="http://localhost:5000"
+PS="http://127.0.0.1:6400"
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 
 ok()  { echo -e "  ${GREEN}✓${NC} $*"; }
@@ -142,6 +142,9 @@ echo "  What was proven:"
 echo "    ✓ Pageserver HTTP API is live"
 echo "    ✓ Branch creation is O(1) — ~${SERVER_US}μs server-side"
 echo "    ✓ Prometheus metrics are exposed for the autoscaler"
+echo ""
+echo "  Services: pageserver=6400, safekeeper=6401, control-plane=6402, compute-shim=6403"
+echo "  (Ports changed from 5000-5003 to avoid macOS AirPlay on port 5000)"
 echo ""
 echo "  To see the full stack (Grafana, MinIO, real Postgres):"
 echo "    make up    # starts Docker Compose"

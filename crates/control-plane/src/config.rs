@@ -32,10 +32,10 @@ pub struct AutoscalerConfig {
 impl Default for ControlPlaneConfig {
     fn default() -> Self {
         Self {
-            listen_addr: "0.0.0.0:5002".to_string(),
-            database_url: "postgres://lattice:lattice@localhost:5432/lattice".to_string(),
-            pageserver_url: "http://localhost:5000".to_string(),
-            safekeeper_url: "http://localhost:5001".to_string(),
+            listen_addr: "127.0.0.1:6402".to_string(),
+            database_url: "postgres://lattice:lattice@127.0.0.1:5432/lattice".to_string(),
+            pageserver_url: "http://127.0.0.1:6400".to_string(),
+            safekeeper_url: "http://127.0.0.1:6401".to_string(),
             autoscaler: AutoscalerConfig {
                 poll_interval_secs: 5,
                 idle_suspend_secs: 30,

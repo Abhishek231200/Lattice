@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let pageserver_url = std::env::var("PAGESERVER_URL")
-        .unwrap_or_else(|_| "http://localhost:5000".to_string());
+        .unwrap_or_else(|_| "http://127.0.0.1:6400".to_string());
     let tenant_id: TenantId = std::env::var("TENANT_ID")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
 
     let state = SmgrProxyState { client, cache };
 
-    let addr = "0.0.0.0:5003".parse::<std::net::SocketAddr>()?;
+    let addr = "127.0.0.1:6403".parse::<std::net::SocketAddr>()?;
     info!("compute-shim listening on {addr}");
 
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -11,9 +11,9 @@ pub struct SafekeeperConfig {
 impl Default for SafekeeperConfig {
     fn default() -> Self {
         Self {
-            listen_addr: "0.0.0.0:5001".to_string(),
+            listen_addr: "127.0.0.1:6401".to_string(),
             data_dir: PathBuf::from("/tmp/lattice/wal"),
-            pageserver_url: Some("http://localhost:5000".to_string()),
+            pageserver_url: Some("http://127.0.0.1:6400".to_string()),
         }
     }
 }
