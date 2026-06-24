@@ -120,7 +120,7 @@ echo "  Creating branch from main at LSN 0..."
 START_NS=$(python3 -c "import time; print(int(time.time_ns()))")
 BRANCH_RESP=$(create_branch "$ROOT_TL" 0 "feature-branch")
 END_NS=$(python3 -c "import time; print(int(time.time_ns()))")
-ELAPSED_MS=$(( (END_NS - START_NS) / 1_000_000 ))
+ELAPSED_MS=$(( (END_NS - START_NS) / 1000000 ))
 BRANCH_TL=$(echo "$BRANCH_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['timeline_id'])")
 SERVER_US=$(echo "$BRANCH_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['elapsed_us'])")
 ok "branch timeline: $BRANCH_TL"
@@ -133,7 +133,7 @@ for name in "staging" "qa" "hotfix"; do
     S=$(python3 -c "import time; print(int(time.time_ns()))")
     R=$(create_branch "$ROOT_TL" 0 "$name")
     E=$(python3 -c "import time; print(int(time.time_ns()))")
-    MS=$(( (E - S) / 1_000_000 ))
+    MS=$(( (E - S) / 1000000 ))
     TL=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['timeline_id'])")
     SUS=$(echo "$R" | python3 -c "import sys,json; print(json.load(sys.stdin)['elapsed_us'])")
     ok "$name → ${MS}ms wall / ${SUS}μs server"
