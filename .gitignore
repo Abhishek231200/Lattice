@@ -1,0 +1,20 @@
+/target/
+*.o
+*.so
+*.dylib
+
+# Postgres extension build artifacts
+lattice_smgr/*.o
+lattice_smgr/*.so
+lattice_smgr/*.dylib
+
+# Local data dirs created at runtime
+/tmp/lattice/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+*.swp
