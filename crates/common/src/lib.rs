@@ -8,5 +8,5 @@ pub mod proto;
 pub use lsn::Lsn;
 pub use ids::{TenantId, TimelineId};
 pub use page::{RelTag, BlockNumber, PageImage, PageDelta, PageVersion, PAGE_SIZE};
-pub use blob_store::BlobStore;
+pub use blob_store::{BlobStore, S3BlobStore, GcsBlobStore, AzureBlobStore};
 pub use error::{LatticeError, Result};

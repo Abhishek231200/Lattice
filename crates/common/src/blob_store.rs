@@ -143,21 +143,164 @@ impl LocalFsStore {
 }
 
 // ---------------------------------------------------------------------------
-// S3 / MinIO stub — wire protocol identical, just different endpoint
+// Cloud object storage (S3/MinIO, GCS, Azure Blob) via `object_store`
 // ---------------------------------------------------------------------------
 
-/// Marker struct; full impl in `pageserver::store::s3`.
-pub struct S3Store;
+use object_store::{ObjectStore, path::Path as ObjPath};
+use futures::StreamExt;
+
+/// Shared helper: GET a key from any ObjectStore.
+async fn cloud_get(inner: &dyn ObjectStore, key: &str) -> StoreResult<Bytes> {
+    let path = ObjPath::from(key);
+    match inner.get(&path).await {
+        Ok(result) => result.bytes().await.map_err(|e| StorageError::Backend(e.to_string())),
+        Err(object_store::Error::NotFound { .. }) => Err(StorageError::NotFound(key.to_string())),
+        Err(e) => Err(StorageError::Backend(e.to_string())),
+    }
+}
+
+/// Shared helper: PUT a key into any ObjectStore.
+async fn cloud_put(inner: &dyn ObjectStore, key: &str, data: Bytes) -> StoreResult<()> {
+    let path = ObjPath::from(key);
+    inner.put(&path, data.into())
+        .await
+        .map(|_| ())
+        .map_err(|e| StorageError::Backend(e.to_string()))
+}
+
+/// Shared helper: LIST keys with a given prefix.
+async fn cloud_list(inner: &dyn ObjectStore, prefix: &str) -> StoreResult<Vec<String>> {
+    let prefix_path = ObjPath::from(prefix);
+    let mut stream = inner.list(Some(&prefix_path));
+    let mut keys = Vec::new();
+    while let Some(result) = stream.next().await {
+        let meta = result.map_err(|e| StorageError::Backend(e.to_string()))?;
+        keys.push(meta.location.to_string());
+    }
+    Ok(keys)
+}
+
+/// Shared helper: DELETE a key (idempotent — silently ignores NotFound).
+async fn cloud_delete(inner: &dyn ObjectStore, key: &str) -> StoreResult<()> {
+    let path = ObjPath::from(key);
+    match inner.delete(&path).await {
+        Ok(_) => Ok(()),
+        Err(object_store::Error::NotFound { .. }) => Ok(()),
+        Err(e) => Err(StorageError::Backend(e.to_string())),
+    }
+}
 
 // ---------------------------------------------------------------------------
-// GCS stub
+// S3BlobStore — AWS S3 and MinIO-compatible
 // ---------------------------------------------------------------------------
-pub struct GcsStore;
+
+/// BlobStore backed by Amazon S3 or any S3-compatible service (MinIO, Ceph, etc.).
+pub struct S3BlobStore(std::sync::Arc<dyn ObjectStore>);
+
+impl S3BlobStore {
+    /// Connect to AWS S3 with standard credentials.
+    pub fn new_aws(
+        region: &str,
+        bucket: &str,
+        access_key_id: &str,
+        secret_access_key: &str,
+    ) -> anyhow::Result<Self> {
+        let store = object_store::aws::AmazonS3Builder::new()
+            .with_region(region)
+            .with_bucket_name(bucket)
+            .with_access_key_id(access_key_id)
+            .with_secret_access_key(secret_access_key)
+            .build()?;
+        Ok(Self(std::sync::Arc::new(store)))
+    }
+
+    /// Connect to a MinIO (or other S3-compatible) endpoint.
+    pub fn new_minio(
+        endpoint: &str,
+        bucket: &str,
+        access_key: &str,
+        secret_key: &str,
+    ) -> anyhow::Result<Self> {
+        let store = object_store::aws::AmazonS3Builder::new()
+            .with_endpoint(endpoint)
+            .with_bucket_name(bucket)
+            .with_region("us-east-1")   // MinIO ignores region but the builder requires it
+            .with_access_key_id(access_key)
+            .with_secret_access_key(secret_key)
+            .with_allow_http(true)       // MinIO may serve over plain HTTP
+            .build()?;
+        Ok(Self(std::sync::Arc::new(store)))
+    }
+}
+
+#[async_trait]
+impl BlobStore for S3BlobStore {
+    async fn get(&self, key: &str) -> StoreResult<Bytes> { cloud_get(&*self.0, key).await }
+    async fn put(&self, key: &str, data: Bytes) -> StoreResult<()> { cloud_put(&*self.0, key, data).await }
+    async fn list(&self, prefix: &str) -> StoreResult<Vec<String>> { cloud_list(&*self.0, prefix).await }
+    async fn delete(&self, key: &str) -> StoreResult<()> { cloud_delete(&*self.0, key).await }
+}
 
 // ---------------------------------------------------------------------------
-// Azure Blob stub
+// GcsBlobStore — Google Cloud Storage
 // ---------------------------------------------------------------------------
-pub struct AzureStore;
+
+/// BlobStore backed by Google Cloud Storage.
+pub struct GcsBlobStore(std::sync::Arc<dyn ObjectStore>);
+
+impl GcsBlobStore {
+    /// Connect to GCS using a service account key JSON string.
+    pub fn new(bucket: &str, service_account_key_json: &str) -> anyhow::Result<Self> {
+        let store = object_store::gcp::GoogleCloudStorageBuilder::new()
+            .with_bucket_name(bucket)
+            .with_service_account_key(service_account_key_json)
+            .build()?;
+        Ok(Self(std::sync::Arc::new(store)))
+    }
+
+    /// Connect to GCS using Application Default Credentials.
+    pub fn new_from_adc(bucket: &str) -> anyhow::Result<Self> {
+        let store = object_store::gcp::GoogleCloudStorageBuilder::new()
+            .with_bucket_name(bucket)
+            .build()?;
+        Ok(Self(std::sync::Arc::new(store)))
+    }
+}
+
+#[async_trait]
+impl BlobStore for GcsBlobStore {
+    async fn get(&self, key: &str) -> StoreResult<Bytes> { cloud_get(&*self.0, key).await }
+    async fn put(&self, key: &str, data: Bytes) -> StoreResult<()> { cloud_put(&*self.0, key, data).await }
+    async fn list(&self, prefix: &str) -> StoreResult<Vec<String>> { cloud_list(&*self.0, prefix).await }
+    async fn delete(&self, key: &str) -> StoreResult<()> { cloud_delete(&*self.0, key).await }
+}
+
+// ---------------------------------------------------------------------------
+// AzureBlobStore — Azure Blob Storage
+// ---------------------------------------------------------------------------
+
+/// BlobStore backed by Azure Blob Storage.
+pub struct AzureBlobStore(std::sync::Arc<dyn ObjectStore>);
+
+impl AzureBlobStore {
+    /// Connect to Azure Blob Storage with an account name and access key.
+    pub fn new(account_name: &str, access_key: &str, container: &str) -> anyhow::Result<Self> {
+        let store = object_store::azure::MicrosoftAzureBuilder::new()
+            .with_account(account_name)
+            .with_access_key(access_key)
+            .with_container_name(container)
+            .build()?;
+        Ok(Self(std::sync::Arc::new(store)))
+    }
+}
+
+#[async_trait]
+impl BlobStore for AzureBlobStore {
+    async fn get(&self, key: &str) -> StoreResult<Bytes> { cloud_get(&*self.0, key).await }
+    async fn put(&self, key: &str, data: Bytes) -> StoreResult<()> { cloud_put(&*self.0, key, data).await }
+    async fn list(&self, prefix: &str) -> StoreResult<Vec<String>> { cloud_list(&*self.0, prefix).await }
+    async fn delete(&self, key: &str) -> StoreResult<()> { cloud_delete(&*self.0, key).await }
+}
 
 #[cfg(test)]
 mod tests {

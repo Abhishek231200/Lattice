@@ -61,6 +61,9 @@ toml = "0.8"
 # Async traits
 async-trait = "0.1"
 
+# Cloud object storage (S3/MinIO, GCS, Azure Blob)
+object_store = { version = "0.11", features = ["aws", "gcp", "azure"] }
+
 # Utilities
 futures = "0.3"
 pin-project = "1"

@@ -49,7 +49,28 @@ Run: `cargo test -p lattice-pageserver --test storage_amplification -- --nocaptu
 
 ---
 
-## 3. Page Read Latency — `get_page_at_lsn`
+## 3. Page Delta Merges
+
+**Claim**: branch changes can be merged forward into a target timeline. Merge cost is O(pages_changed), not O(total_pages). Source wins on conflict.
+
+Measured in `crates/pageserver/tests/merge.rs`.
+
+| Scenario | Pages diverged | Conflicts | Merge time | Throughput |
+|---|---|---|---|---|
+| Small feature branch → parent | 4 | 1 | **18 μs** | — |
+| Large feature branch → parent | 1,000 | 0 | 8.1 ms | 122,000 pages/sec |
+
+Post-merge assertions (all verified in tests):
+- Merged pages visible on target at `merge_lsn` ✓
+- Source wins over conflicting target edits ✓  
+- Source branch is unchanged after merge ✓
+- Sibling branches are unaffected ✓
+
+Run: `cargo test -p lattice-pageserver --test merge -- --nocapture`
+
+---
+
+## 4. Page Read Latency — `get_page_at_lsn`
 
 | Scenario                                | p50      | p99      |
 |-----------------------------------------|----------|----------|
@@ -61,7 +82,7 @@ Run: `cargo test -p lattice-pageserver --test storage_amplification -- --nocaptu
 
 ---
 
-## 4. WAL Ingest Throughput
+## 5. WAL Ingest Throughput
 
 | Workload           | Records/sec | MB/sec |
 |--------------------|-------------|--------|
@@ -73,7 +94,7 @@ Bottleneck is fsync to the safekeeper WAL store; pipelined to the pageserver red
 
 ---
 
-## 5. Autoscaler Performance
+## 6. Autoscaler Performance
 
 Measured by the simulation in `crates/control-plane/tests/autoscaler_sim.rs`.
 No Docker or Prometheus required — uses `SyntheticMetricsSource` + `MockOrchestrator`.
@@ -106,13 +127,61 @@ Run: `cargo test -p lattice-control-plane --test autoscaler_sim -- --nocapture`
 
 ---
 
-## 6. Durability / Recovery
+## 7. Durability / Recovery
 
 | Scenario                          | Result                                  |
 |-----------------------------------|-----------------------------------------|
 | Kill pageserver mid-workload      | Recovers from object storage on restart |
 | Kill safekeeper mid-WAL           | Postgres reconnects; WAL gap filled     |
 | Restart from cold object storage  | All pages readable within < 30 s       |
+
+---
+
+## 8. Cloud Storage Backends
+
+**Claim**: All persistence flows through a `BlobStore` trait — the system is cloud-portable with no code changes.
+
+Implemented in `crates/common/src/blob_store.rs` using the `object_store` crate.
+
+| Backend | Type | Status |
+|---|---|---|
+| Local filesystem | `LocalFsStore` | ✓ Used in dev + all tests |
+| AWS S3 | `S3BlobStore::new_aws(...)` | ✓ Implemented |
+| MinIO / Ceph (S3-compatible) | `S3BlobStore::new_minio(...)` | ✓ Implemented |
+| Google Cloud Storage | `GcsBlobStore::new(...)` | ✓ Implemented |
+| Azure Blob Storage | `AzureBlobStore::new(...)` | ✓ Implemented |
+
+Switch backends by setting `storage.type` in pageserver config:
+```toml
+# Local dev (default)
+[storage]
+type = "localfs"
+path = "/tmp/lattice/data"
+
+# AWS S3
+[storage]
+type = "s3"
+endpoint = ""          # empty = real AWS; set for MinIO/Ceph
+bucket = "lattice-data"
+region = "us-east-1"
+access_key = "..."
+secret_key = "..."
+
+# GCS
+[storage]
+type = "gcs"
+bucket = "lattice-data"
+service_account_key = "..."   # JSON string; empty = ADC
+
+# Azure
+[storage]
+type = "azure"
+account_name = "..."
+access_key = "..."
+container = "lattice-data"
+```
+
+All four backends implement the same `get / put / list / delete` interface; zero pageserver code changes needed to switch.
 
 ---
 

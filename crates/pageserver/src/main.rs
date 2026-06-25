@@ -10,7 +10,7 @@ use lattice_pageserver::{
     store::{BlobLayerStorage, LayerStorage},
     timeline::TimelineManager,
 };
-use lattice_common::blob_store::LocalFsStore;
+use lattice_common::blob_store::{LocalFsStore, S3BlobStore, GcsBlobStore, AzureBlobStore};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -30,10 +30,27 @@ async fn main() -> anyhow::Result<()> {
             std::fs::create_dir_all(path)?;
             Arc::new(LocalFsStore::new(path)?)
         }
-        StorageConfig::S3 { endpoint, bucket, .. } => {
-            info!("using S3-compatible storage: endpoint={endpoint} bucket={bucket}");
-            // S3 impl is wired in Phase 2 — fall back to local FS for now.
-            Arc::new(LocalFsStore::new("/tmp/lattice/s3-local")?)
+        StorageConfig::S3 { endpoint, bucket, region, access_key, secret_key } => {
+            if endpoint.is_empty() {
+                info!("using AWS S3: region={region} bucket={bucket}");
+                Arc::new(S3BlobStore::new_aws(region, bucket, access_key, secret_key)?)
+            } else {
+                info!("using S3-compatible (MinIO): endpoint={endpoint} bucket={bucket}");
+                Arc::new(S3BlobStore::new_minio(endpoint, bucket, access_key, secret_key)?)
+            }
+        }
+        StorageConfig::Gcs { bucket, service_account_key } => {
+            if service_account_key.is_empty() {
+                info!("using GCS (Application Default Credentials): bucket={bucket}");
+                Arc::new(GcsBlobStore::new_from_adc(bucket)?)
+            } else {
+                info!("using GCS (service account): bucket={bucket}");
+                Arc::new(GcsBlobStore::new(bucket, service_account_key)?)
+            }
+        }
+        StorageConfig::Azure { account_name, access_key, container } => {
+            info!("using Azure Blob Storage: account={account_name} container={container}");
+            Arc::new(AzureBlobStore::new(account_name, access_key, container)?)
         }
     };
 

@@ -13,7 +13,7 @@
 ///   3. Apply deltas in order to produce the final page.
 ///   4. If no layer found on this timeline, recurse to parent up to branch_lsn.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -225,6 +225,23 @@ impl LayerSet {
         }
         // Sort by LSN so we apply deltas in order.
         result.sort_by_key(|(lsn, _)| *lsn);
+        result
+    }
+
+    /// Collect the latest version of every page that was written strictly after `since`.
+    ///
+    /// Used by `merge_branch` to enumerate the diverging changes on a branch.
+    /// Images are stored sorted descending by LSN, so the first hit per key is the latest.
+    pub fn pages_since_lsn(&self, since: Lsn) -> HashMap<PageKey, (Lsn, PageImage)> {
+        let images = self.images.read();
+        let mut result: HashMap<PageKey, (Lsn, PageImage)> = HashMap::new();
+        for layer in images.iter() {  // descending LSN order → first hit = latest
+            if layer.lsn > since {
+                for (key, image) in &layer.pages {
+                    result.entry(*key).or_insert_with(|| (layer.lsn, image.clone()));
+                }
+            }
+        }
         result
     }
 

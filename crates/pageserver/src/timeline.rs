@@ -29,7 +29,7 @@ use lattice_common::{
 use lattice_common::blob_store::BlobStore;
 use lattice_common::error::{LatticeError, Result};
 
-use crate::layer::{ImageLayer, DeltaLayer, LayerSet};
+use crate::layer::{ImageLayer, DeltaLayer, LayerSet, PageKey};
 use crate::redo::RedoEngine;
 use crate::store::LayerStorage;
 
@@ -183,6 +183,12 @@ impl Timeline {
         self.layers.stats()
     }
 
+    /// Latest version of every page written strictly after `since_lsn` on this timeline.
+    /// Used by `TimelineManager::merge_branch`.
+    pub fn pages_since_lsn(&self, since_lsn: Lsn) -> std::collections::HashMap<PageKey, (Lsn, PageImage)> {
+        self.layers.pages_since_lsn(since_lsn)
+    }
+
     /// Write a WAL-derived page version at the given LSN.
     pub fn put_page_version(&self, rel: RelTag, blk: BlockNumber, lsn: Lsn, version: PageVersion) {
         // Build a single-record delta layer.  In production these are batched by the
@@ -279,6 +285,67 @@ impl TimelineManager {
             .map(|tls| tls.values().cloned().collect())
             .unwrap_or_default()
     }
+
+    /// Forward-merge `source` branch into `target` timeline at `merge_lsn`.
+    ///
+    /// Algorithm:
+    ///   1. Find divergence point = `source.branch_lsn`.
+    ///   2. Collect all pages written on `source` after that LSN.
+    ///   3. Collect all pages written on `target` after that LSN (for conflict counting).
+    ///   4. Write source pages onto target at `merge_lsn` (source wins on conflict).
+    ///
+    /// Returns `MergeResult` with merge metrics. Does not modify `source`.
+    pub fn merge_branch(
+        &self,
+        tenant_id: TenantId,
+        source_id: TimelineId,
+        target_id: TimelineId,
+        merge_lsn: Lsn,
+    ) -> Result<MergeResult> {
+        let start = Instant::now();
+
+        let source = self.get_timeline(tenant_id, source_id)?;
+        let target = self.get_timeline(tenant_id, target_id)?;
+
+        // divergence_lsn = the point where source branched from its parent.
+        // Only pages written after this LSN are "branch-local" changes.
+        let divergence_lsn = source.meta.branch_lsn;
+
+        let source_pages = source.pages_since_lsn(divergence_lsn);
+        let target_pages = target.pages_since_lsn(divergence_lsn);
+
+        // A conflict is a page modified on both sides since the branch point.
+        let conflicts = source_pages.keys()
+            .filter(|k| target_pages.contains_key(*k))
+            .count();
+
+        let merged_pages = source_pages.len();
+
+        // Apply source pages to target (source wins on conflict).
+        for (key, (_lsn, image)) in &source_pages {
+            target.put_image(key.rel, key.blk, merge_lsn, image.clone());
+        }
+
+        let elapsed_us = start.elapsed().as_micros() as u64;
+        Ok(MergeResult { merged_pages, conflicts, merge_lsn, elapsed_us })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MergeResult
+// ---------------------------------------------------------------------------
+
+/// Result of a `merge_branch` operation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergeResult {
+    /// Number of pages copied from source to target.
+    pub merged_pages: usize,
+    /// Pages modified on both sides since the branch point (source won).
+    pub conflicts: usize,
+    /// The LSN at which source pages were written on the target.
+    pub merge_lsn: Lsn,
+    /// Wall-clock time for the merge operation (microseconds).
+    pub elapsed_us: u64,
 }
 
 #[cfg(test)]

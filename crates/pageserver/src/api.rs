@@ -49,6 +49,7 @@ pub fn router(state: PageserverState) -> Router {
         .route("/page/put", post(put_page))
         .route("/timelines", post(create_timeline))
         .route("/timelines/branch", post(create_branch))
+        .route("/timelines/merge", post(merge_branch_handler))
         .route("/timelines/:id", get(timeline_info))
         .with_state(state)
 }
@@ -183,6 +184,33 @@ async fn timeline_info(
 
     // Placeholder — a real impl would index by TimelineId directly.
     (StatusCode::NOT_IMPLEMENTED, "use tenant-scoped endpoint").into_response()
+}
+
+// ---------------------------------------------------------------------------
+// Merge endpoint
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct MergeBranchReq {
+    tenant_id: TenantId,
+    source_timeline_id: TimelineId,
+    target_timeline_id: TimelineId,
+    merge_lsn: Lsn,
+}
+
+async fn merge_branch_handler(
+    State(state): State<PageserverState>,
+    Json(req): Json<MergeBranchReq>,
+) -> impl IntoResponse {
+    match state.timelines.merge_branch(
+        req.tenant_id,
+        req.source_timeline_id,
+        req.target_timeline_id,
+        req.merge_lsn,
+    ) {
+        Ok(result) => Json(result).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    }
 }
 
 // ---------------------------------------------------------------------------

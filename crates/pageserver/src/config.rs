@@ -15,12 +15,26 @@ pub struct PageserverConfig {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum StorageConfig {
     LocalFs { path: PathBuf },
+    /// AWS S3 or any S3-compatible service (MinIO, Ceph).
+    /// Set `endpoint` to a custom URL for MinIO; leave empty for AWS.
     S3 {
         endpoint: String,
         bucket: String,
         region: String,
         access_key: String,
         secret_key: String,
+    },
+    /// Google Cloud Storage via service-account JSON.
+    /// If `service_account_key` is empty, falls back to Application Default Credentials.
+    Gcs {
+        bucket: String,
+        service_account_key: String,
+    },
+    /// Azure Blob Storage.
+    Azure {
+        account_name: String,
+        access_key: String,
+        container: String,
     },
 }
 
