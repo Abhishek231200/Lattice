@@ -178,6 +178,11 @@ impl Timeline {
         self.advance_lsn(lsn);
     }
 
+    /// Layer statistics for storage amplification measurement.
+    pub fn layer_stats(&self) -> crate::layer::LayerStats {
+        self.layers.stats()
+    }
+
     /// Write a WAL-derived page version at the given LSN.
     pub fn put_page_version(&self, rel: RelTag, blk: BlockNumber, lsn: Lsn, version: PageVersion) {
         // Build a single-record delta layer.  In production these are batched by the

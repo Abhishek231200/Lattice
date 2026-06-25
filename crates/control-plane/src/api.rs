@@ -35,7 +35,7 @@ use lattice_common::proto::{
 use crate::autoscaler::{Autoscaler, ScalingDecision};
 use crate::compute::{ComputeOrchestrator, ComputeSpec};
 use crate::db::ControlPlaneDb;
-use crate::metrics::PrometheusClient;
+use crate::metrics::MetricsSource;
 
 // ---------------------------------------------------------------------------
 // App state
@@ -46,7 +46,7 @@ pub struct ControlPlaneState {
     pub db: Arc<ControlPlaneDb>,
     pub autoscaler: Arc<Autoscaler>,
     pub orchestrator: Arc<dyn ComputeOrchestrator>,
-    pub prometheus: Arc<PrometheusClient>,
+    pub prometheus: Arc<dyn MetricsSource>,
     pub pageserver_url: String,
 }
 

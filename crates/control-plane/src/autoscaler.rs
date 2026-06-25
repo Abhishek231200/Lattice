@@ -26,8 +26,7 @@ use lattice_common::proto::EndpointState;
 
 use crate::compute::ComputeOrchestrator;
 use crate::config::AutoscalerConfig;
-use crate::db::ControlPlaneDb;
-use crate::metrics::PrometheusClient;
+use crate::metrics::MetricsSource;
 
 // ---------------------------------------------------------------------------
 // Endpoint runtime state tracked by the autoscaler
@@ -104,7 +103,7 @@ pub enum ScalingAction {
 pub struct Autoscaler {
     config: AutoscalerConfig,
     orchestrator: Arc<dyn ComputeOrchestrator>,
-    prometheus: Arc<PrometheusClient>,
+    metrics: Arc<dyn MetricsSource>,
     /// In-memory state; persisted to DB on each decision.
     endpoint_states: Mutex<HashMap<String, EndpointRuntimeState>>,
     /// Running log of all decisions (also stored in DB).
@@ -115,12 +114,12 @@ impl Autoscaler {
     pub fn new(
         config: AutoscalerConfig,
         orchestrator: Arc<dyn ComputeOrchestrator>,
-        prometheus: Arc<PrometheusClient>,
+        metrics: Arc<dyn MetricsSource>,
     ) -> Self {
         Self {
             config,
             orchestrator,
-            prometheus,
+            metrics,
             endpoint_states: Mutex::new(HashMap::new()),
             decisions: Mutex::new(Vec::new()),
         }
@@ -275,7 +274,7 @@ impl Autoscaler {
     }
 
     async fn collect_metrics(&self, endpoint_id: &str) -> anyhow::Result<EndpointMetrics> {
-        self.prometheus.query_endpoint_metrics(endpoint_id).await
+        self.metrics.query_endpoint_metrics(endpoint_id).await
     }
 
     fn update_state(&self, state: EndpointRuntimeState) {

@@ -8,7 +8,7 @@ use lattice_control_plane::{
     compute::DockerOrchestrator,
     config::ControlPlaneConfig,
     db::ControlPlaneDb,
-    metrics::PrometheusClient,
+    metrics::{PrometheusClient, MetricsSource},
 };
 
 #[tokio::main]
@@ -33,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
     let autoscaler = Arc::new(Autoscaler::new(
         config.autoscaler.clone(),
         orchestrator.clone(),
-        prometheus.clone(),
+        prometheus.clone() as Arc<dyn MetricsSource>,
     ));
 
     // Spawn the autoscaler loop.
@@ -48,7 +48,7 @@ async fn main() -> anyhow::Result<()> {
         db,
         autoscaler,
         orchestrator,
-        prometheus,
+        prometheus: prometheus as Arc<dyn MetricsSource>,
         pageserver_url: config.pageserver_url.clone(),
     };
 

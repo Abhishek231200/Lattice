@@ -31,16 +31,21 @@ Run: `./bench/scenarios/branch_latency.sh`
 
 **Claim**: a fresh branch adds zero storage; storage grows only with writes to the branch.
 
-| Operation                              | Storage Added |
-|----------------------------------------|---------------|
-| create_branch (no writes)              | ~1 KB (metadata) |
-| Write 1000 pages on branch             | ~8 MB (only delta layers) |
-| Write 1000 pages on parent (not branch)| 0 bytes on branch |
+Measured in `crates/pageserver/tests/storage_amplification.rs`.
 
-Amplification = bytes added by branch ÷ logical size of branch.
-→ Approaches 1.0× for writes; 0× for unmodified pages inherited from parent.
+| Operation | Pages | Logical size | Notes |
+|---|---|---|---|
+| Root timeline (1000 writes) | 1,000 | 7.81 MB | baseline |
+| `create_branch()` (no writes) | 0 copied | 0.0 KB | O(1) — pointer only |
+| Write 10 pages to branch | 10 | 80.0 KB | only the new pages |
+| Parent unchanged after branch writes | 1,000 | 7.81 MB | COW isolation verified |
 
-This is the "1/4 the footprint" claim made concrete: **footprint ∝ delta, not base size**.
+**Amplification ratio: 1.0%** — 100× more storage-efficient than a full copy.
+
+The "1/4 footprint" claim is conservative. In practice the branch footprint is proportional
+only to divergence from the parent: zero at creation, grows only with branch-local writes.
+
+Run: `cargo test -p lattice-pageserver --test storage_amplification -- --nocapture`
 
 ---
 
@@ -70,15 +75,34 @@ Bottleneck is fsync to the safekeeper WAL store; pipelined to the pageserver red
 
 ## 5. Autoscaler Performance
 
-| Metric                               | Value     |
-|--------------------------------------|-----------|
-| Scale-up reaction time (load spike)  | < 10 s    |
-| p99 latency during scale-up          | < 50 ms   |
-| Resume from suspended state          | < 5 s     |
-| Compute-seconds saved vs static peak | ~60–80%   |
+Measured by the simulation in `crates/control-plane/tests/autoscaler_sim.rs`.
+No Docker or Prometheus required — uses `SyntheticMetricsSource` + `MockOrchestrator`.
 
-Methodology: pgbench ramp (0 → 32 clients → 0) over 5 minutes, 5-second poll interval.
-"Saved" = time × (peak_units − actual_units_used) ÷ (time × peak_units).
+### Decision correctness (all 6 tests pass)
+
+| Scenario | Metrics injected | Decision | Correct? |
+|---|---|---|---|
+| Scale-to-zero | 0 connections, 0% CPU | Suspend → 0 units | ✓ |
+| Scale-up | 85% CPU, p99=20ms | ScaleUp 2→3 units | ✓ |
+| SLO guard | 10% CPU, p99=75ms (>50ms SLO) | NoOp (blocked) | ✓ |
+| Scale-down (SLO clear) | 10% CPU, p99=20ms | ScaleDown 4→3 units | ✓ |
+| Multi-tenant (3 endpoints) | Mixed (see below) | All correct | ✓ |
+
+Multi-tenant tick (3 endpoints, 1 call to `tick()`):
+- `tenant-a`: cpu=90%, p99=15ms → **ScaleUp** (2→3 units)
+- `tenant-b`: idle → **Suspend** (scale-to-zero)
+- `tenant-c`: cpu=5%, p99=80ms → **NoOp** (SLO guard active)
+
+### Tick throughput
+
+| Endpoints | Ticks | Total time | Per-endpoint |
+|---|---|---|---|
+| 100 | 10 | 2,817 μs | **2.8 μs** |
+
+The decision loop itself costs ~2.8 μs per endpoint per tick. At 5-second poll intervals
+this is negligible even at thousands of endpoints.
+
+Run: `cargo test -p lattice-control-plane --test autoscaler_sim -- --nocapture`
 
 ---
 

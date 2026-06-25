@@ -227,6 +227,45 @@ impl LayerSet {
         result.sort_by_key(|(lsn, _)| *lsn);
         result
     }
+
+    /// Returns (image_layers, total_image_pages, delta_layers, total_delta_entries).
+    /// Used by storage amplification benchmarks and tests.
+    pub fn stats(&self) -> LayerStats {
+        let images = self.images.read();
+        let deltas = self.deltas.read();
+        let total_image_pages: usize = images.iter().map(|l| l.page_count()).sum();
+        let total_delta_entries: usize = deltas.iter().map(|l| l.deltas.len()).sum();
+        LayerStats {
+            image_layers: images.len(),
+            total_image_pages,
+            delta_layers: deltas.len(),
+            total_delta_entries,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LayerStats {
+    pub image_layers: usize,
+    pub total_image_pages: usize,
+    pub delta_layers: usize,
+    pub total_delta_entries: usize,
+}
+
+impl LayerStats {
+    /// Logical storage bytes: image pages at PAGE_SIZE + delta entries at an estimated
+    /// average patch size (64 bytes overhead + payload).
+    pub fn logical_bytes(&self) -> usize {
+        self.total_image_pages * PAGE_SIZE + self.total_delta_entries * 64
+    }
+
+    pub fn logical_kb(&self) -> f64 {
+        self.logical_bytes() as f64 / 1024.0
+    }
+
+    pub fn logical_mb(&self) -> f64 {
+        self.logical_bytes() as f64 / (1024.0 * 1024.0)
+    }
 }
 
 #[cfg(test)]

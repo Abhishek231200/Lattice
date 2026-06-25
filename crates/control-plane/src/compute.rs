@@ -53,6 +53,80 @@ pub trait ComputeOrchestrator: Send + Sync + 'static {
 // Docker orchestrator (local dev)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Mock orchestrator — records calls without running Docker. Used in tests.
+// ---------------------------------------------------------------------------
+
+/// Records every orchestration call for assertion in tests and simulations.
+pub struct MockOrchestrator {
+    pub calls: parking_lot::Mutex<Vec<String>>,
+}
+
+impl MockOrchestrator {
+    pub fn new() -> Self {
+        Self { calls: parking_lot::Mutex::new(Vec::new()) }
+    }
+
+    pub fn calls(&self) -> Vec<String> {
+        self.calls.lock().clone()
+    }
+}
+
+#[async_trait]
+impl ComputeOrchestrator for MockOrchestrator {
+    async fn start(&self, spec: ComputeSpec) -> Result<ComputeInfo> {
+        self.calls.lock().push(format!("start:{}", spec.endpoint_id));
+        Ok(ComputeInfo {
+            endpoint_id: spec.endpoint_id.clone(),
+            state: EndpointState::Active,
+            host: "mock".into(),
+            port: 5432,
+            cpu_millis: spec.cpu_millis,
+            memory_mb: spec.memory_mb,
+        })
+    }
+
+    async fn stop(&self, endpoint_id: &str) -> Result<()> {
+        self.calls.lock().push(format!("stop:{endpoint_id}"));
+        Ok(())
+    }
+
+    async fn suspend(&self, endpoint_id: &str) -> Result<()> {
+        self.calls.lock().push(format!("suspend:{endpoint_id}"));
+        Ok(())
+    }
+
+    async fn resume(&self, endpoint_id: &str) -> Result<ComputeInfo> {
+        self.calls.lock().push(format!("resume:{endpoint_id}"));
+        Ok(ComputeInfo {
+            endpoint_id: endpoint_id.to_string(),
+            state: EndpointState::Active,
+            host: "mock".into(),
+            port: 5432,
+            cpu_millis: 1000,
+            memory_mb: 512,
+        })
+    }
+
+    async fn resize(&self, endpoint_id: &str, cpu_millis: u32, memory_mb: u32) -> Result<()> {
+        self.calls.lock().push(format!("resize:{endpoint_id}:{cpu_millis}m/{memory_mb}MB"));
+        Ok(())
+    }
+
+    async fn info(&self, endpoint_id: &str) -> Result<Option<ComputeInfo>> {
+        Ok(Some(ComputeInfo {
+            endpoint_id: endpoint_id.to_string(),
+            state: EndpointState::Active,
+            host: "mock".into(),
+            port: 5432,
+            cpu_millis: 1000,
+            memory_mb: 512,
+        }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+
 /// Manages Postgres containers via the Docker CLI.  Each endpoint gets its own
 /// container.  For demo purposes we use `docker run` via `tokio::process::Command`.
 pub struct DockerOrchestrator {
